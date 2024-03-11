@@ -31,23 +31,33 @@ struct Cli {
 
 // /sys/class/drm/card*-{name}/i2c-*
 fn get_i2c_dev(output: &str) -> Result<String> {
-  let mut dev = None;
-  for entry in read_dir("/sys/class/i2c-dev").unwrap() {
+  let mut output_dir = None;
+  for entry in read_dir("/sys/class/drm").unwrap() {
     let path = entry.unwrap().path();
-    let link_path = path.read_link().unwrap();
     let name = path.file_name().unwrap().to_str().unwrap();
-    let points_to = link_path.to_str().unwrap();
-    let points_to_split = points_to.split('/').collect::<Vec<_>>();
-    for item in points_to_split {
-      if item.starts_with("card") && item.ends_with(output) {
-        dev = Some(name.to_string());
+    if name.starts_with("card") && name.ends_with(output) {
+      let before_name = name.len() - output.len() - 1;
+      if &name[before_name..before_name+1] == "-" {
+        output_dir = Some(path);
         break;
       }
     }
-    if dev.is_some() {
+  };
+  let mut dev = None;
+  let output_dir = output_dir.ok_or_else(|| eyre!("output name not found in /sys/class/drm"))?;
+  for entry in read_dir(output_dir).unwrap() {
+    let entry = entry.unwrap();
+    let file_name = entry.file_name();
+    let name = file_name.to_str().unwrap();
+    if name.starts_with("i2c-") {
+      dev = Some(name.to_owned());
+      break;
+    } else if name == "ddc" {
+      let link = entry.path().read_link().unwrap();
+      dev = Some(link.file_name().unwrap().to_string_lossy().into_owned());
       break;
     }
-  };
+  }
 
   dev.ok_or_else(|| eyre!("i2c dev not found"))
 }
